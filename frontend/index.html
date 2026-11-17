@@ -456,8 +456,7 @@ function checkTriggers() {
     } else { gameOver(); return; } // 쿠로미와 부딪히면 게임 실패
   }
   if (flagRect && overlaps(p, flagRect.x, flagRect.y, flagRect.w, flagRect.h)) {
-    if (collected === totalCoins) { state = "clear"; clearT = 0; } // 코인을 전부 모아야만 골인
-    else flagHint = 2; // 안내 문구 2초
+    state = "clear"; clearT = 0; // 코인이 남아도 골인 (전부 모으면 PERFECT!)
   }
 }
 function loadStage(i) {
