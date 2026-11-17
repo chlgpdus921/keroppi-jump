@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KEROPPI JUMP</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+</style>
+</head>
+<body>
+<canvas id="game" width="640" height="360"></canvas>
+<script>
+"use strict";
+
+// ---- 상수 ----
+const W = 640, H = 360, TILE = 16, PX = 3, STEP = 1 / 60;
+const COYOTE = 0.1, JUMP_BUFFER = 0.1;
+const GRAVITY = 1400, JUMP_V = 460, MAX_VX = 150, ACCEL = 1200, FRICTION = 1400, MAX_FALL = 600;
+const FLOOR_Y = H - 40; // Phase 1 임시 바닥 (Phase 2에서 타일 충돌로 교체)
+const IDLE_FRAME_TIME = 0.4;
+
+// ---- 스프라이트 (요구사항 2, 글자 그대로) ----
+const CLAWD = [
+  "..GGGGGGGG..",
+  ".GGGGGGGGGG.",
+  "GGWBGGGWBGGG",
+  "GGWBGGGWBGGG",
+  "GGGGGGGGGGGG",
+  "GGGGRRRRGGGG",
+  ".GGGGGGGGGG.",
+  "..WWWWWWWW..",
+  "...WWWWWW...",
+  "...G....G...",
+  "...G....G..."
+];
+
+const PALETTE = {
+  G: "#4CAF50", // 케로피 초록색
+  W: "#FFFFFF", // 흰색
+  B: "#14130F", // 검정 눈동자
+  R: "#E85B65"  // 빨간 입
+};
+
+// 정지 시 2프레임 다리 애니메이션: 두 번째 프레임은 마지막 행(발)만 벌린다.
+const CLAWD_IDLE_B = CLAWD.slice(0, -1).concat(["..G......G.."]);
+const CLAWD_FRAMES = [CLAWD, CLAWD_IDLE_B];
+
+// ---- 캔버스 ----
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+function resize() {
+  const scale = Math.max(1, Math.floor(Math.min(innerWidth / W, innerHeight / H)));
+  canvas.style.width = W * scale + "px";
+  canvas.style.height = H * scale + "px";
+}
+addEventListener("resize", resize);
+resize();
+
+// ---- 입력 ----
+const GAME_KEYS = new Set(["ArrowLeft", "ArrowRight", "Space", "KeyR"]);
+const keys = new Set();
+let jumpPressed = false;   // 새 Space 입력 1회 플래그
+let jumpReleased = false;  // Space 뗌 1회 플래그 (가변 점프)
+
+addEventListener("keydown", (e) => {
+  if (GAME_KEYS.has(e.code)) e.preventDefault();
+  if (e.repeat) return; // 자동반복 무시: 꾹 눌러도 한 번만 점프
+  keys.add(e.code);
+  if (e.code === "Space") jumpPressed = true;
+});
+addEventListener("keyup", (e) => {
+  if (GAME_KEYS.has(e.code)) e.preventDefault();
+  keys.delete(e.code);
+  if (e.code === "Space") jumpReleased = true;
+});
+addEventListener("blur", () => keys.clear()); // 포커스를 잃으면 눌린 키가 남지 않게
+
+// ---- 플레이어 ----
+const player = {
+  x: 80, y: FLOOR_Y - 33, w: 30, h: 33,
+  vx: 0, vy: 0, onGround: false, facing: 1,
+  coyote: 0, buffer: 0, animT: 0
+};
+
+// Phase 1: 바닥 y = FLOOR_Y만 판정, x는 화면 안으로 제한
+function moveX(dx) {
+  player.x = Math.min(Math.max(player.x + dx, 0), W - player.w);
+  if (player.x === 0 || player.x === W - player.w) player.vx = 0;
+}
+function moveY(dy) {
+  player.y += dy;
+  player.onGround = false;
+  if (player.y + player.h >= FLOOR_Y) {
+    player.y = FLOOR_Y - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  }
+}
+
+function update(dt) {
+  const p = player;
+  // 입력 → 가속/마찰
+  const dir = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
+  if (dir !== 0) {
+    p.vx += dir * ACCEL * dt;
+    p.vx = Math.max(-MAX_VX, Math.min(MAX_VX, p.vx));
+    p.facing = dir;
+  } else {
+    const f = FRICTION * dt;
+    p.vx = Math.abs(p.vx) <= f ? 0 : p.vx - Math.sign(p.vx) * f;
+  }
+
+  // 1. 점프 버퍼
+  if (jumpPressed) { p.buffer = JUMP_BUFFER; jumpPressed = false; }
+  else p.buffer -= dt;
+  // 2. 코요테 타임
+  if (p.onGround) p.coyote = COYOTE;
+  else p.coyote -= dt;
+  // 3. 점프
+  if (p.buffer > 0 && p.coyote > 0) {
+    p.vy = -JUMP_V;
+    p.buffer = p.coyote = 0;
+    p.onGround = false;
+  }
+  // 4. 가변 점프: 상승 중 Space를 떼면 한 번 감속
+  if (jumpReleased) {
+    if (p.vy < 0) p.vy *= 0.5;
+    jumpReleased = false;
+  }
+  // 5. 중력 → 이동
+  p.vy = Math.min(p.vy + GRAVITY * dt, MAX_FALL);
+  moveX(p.vx * dt);
+  moveY(p.vy * dt);
+
+  // 정지 애니메이션 타이머
+  if (p.onGround && p.vx === 0) p.animT += dt;
+  else p.animT = 0;
+}
+
+// ---- 렌더 ----
+function drawClawd(ctx, x, y, flip, sprite = CLAWD) {
+  for (let r = 0; r < sprite.length; r++) {
+    const row = sprite[r];
+    for (let c = 0; c < 12; c++) {
+      const ch = row[flip ? 11 - c : c];
+      if (ch === ".") continue;
+      ctx.fillStyle = PALETTE[ch];
+      ctx.fillRect(Math.round(x) + c * PX, Math.round(y) + r * PX, PX, PX);
+    }
+  }
+}
+
+function render() {
+  ctx.fillStyle = "#6EC6FF";
+  ctx.fillRect(0, 0, W, H);
+  // 임시 바닥
+  ctx.fillStyle = "#8D5524";
+  ctx.fillRect(0, FLOOR_Y, W, H - FLOOR_Y);
+  ctx.fillStyle = "#3E8E41";
+  ctx.fillRect(0, FLOOR_Y, W, 4);
+
+  const p = player;
+  const frame = CLAWD_FRAMES[Math.floor(p.animT / IDLE_FRAME_TIME) % 2];
+  drawClawd(ctx, p.x - 3, p.y, p.facing < 0, frame);
+}
+
+// ---- 루프 ----
+let last = null, acc = 0;
+function frame(t) {
+  if (last === null) last = t;
+  const dt = (t - last) / 1000;
+  last = t;
+  acc = Math.min(acc + dt, 0.25);
+  let n = 0;
+  while (acc >= STEP && n++ < 5) {
+    update(STEP);
+    acc -= STEP;
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
