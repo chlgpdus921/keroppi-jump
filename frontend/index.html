@@ -34,9 +34,9 @@ const CLAWD = [
   "....FfFFfFFfFFfFFfFFf...",
   "...BBBBB........BBBBB...",
   "..BWWWWWB......BWWWWWB..",
-  ".BWWWWWWWB....BWWWWWWWB.",
   ".BWWWWBBWB....BWWWWBBWB.",
-  ".BWWWWBBWBOOOOBWWWWBBWB.",
+  ".BWWWBBBWB....BWWWBBBWB.",
+  ".BWWWBBBWBOOOOBWWWBBBWB.",
   "OBWWWWWWWBGGGGBWWWWWWWBO",
   "OGBBBBBBBGGGGGGBBBBBBBGO",
   "OGGPPGGGGGGGGGGGGGGPPGGO",
@@ -53,8 +53,8 @@ const CLAWD = [
 const HAT_ROWS = 7;
 
 const PALETTE = {
-  G: "#4CAF50", // 몸
-  O: "#24572A", // 몸 외곽선
+  G: "#8ED99A", // 몸 (연한 파스텔 초록)
+  O: "#3F8F52", // 몸 외곽선
   W: "#FFFFFF", // 흰자
   B: "#14130F", // 눈 외곽선·눈동자
   P: "#FF9EB8", // 볼
@@ -301,7 +301,7 @@ function drawClawd(ctx, x, y, flip, sprite = CLAWD) {
   }
 }
 
-// ---- 파스텔 드림 월드 아트 (전부 fillRect, 화면 밖은 잘라서 그린다) ----
+// ---- 크리스마스 월드 아트 (전부 fillRect, 화면 밖은 잘라서 그린다) ----
 function hash(a, b) {
   let h = (a * 374761393 + b * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -323,8 +323,8 @@ function drawFlower(x, y) { // 3x3 꽃 + 줄기
   rect(x + 1, y + 2, 1, 1, "#FFFFFF"); rect(x + 1, y + 1, 1, 1, "#FFD84D"); rect(x + 1, y + 3, 1, 2, "#7BC67E");
 }
 
-// 하늘: 솜사탕 그라데이션 띠 + 경계 디더링
-const SKY = ["#FFC4E1", "#FFCCE6", "#FFD5EB", "#FCDCF0", "#F5E0F6", "#ECE3FA", "#E3E7FC", "#DCECFD", "#D8F1FB"];
+// 하늘: 크리스마스 저녁 그라데이션 띠 + 경계 디더링
+const SKY = ["#2E2A6B", "#3A3280", "#4A3A92", "#5D449F", "#7451A8", "#8E5FAF", "#A96DB4", "#C47FB8", "#DB95BE"];
 function drawSky() {
   rect(0, 0, W, H, SKY[0]);
   const bh = Math.ceil(H / SKY.length);
@@ -334,77 +334,101 @@ function drawSky() {
   }
 }
 
-const STARS = Array.from({ length: 26 }, (_, i) => ({ x: hash(i, 1) % 1400, y: 8 + hash(i, 2) % 120, ph: (hash(i, 3) % 628) / 100 }));
+const STARS = Array.from({ length: 40 }, (_, i) => ({ x: hash(i, 1) % 1400, y: 6 + hash(i, 2) % 150, ph: (hash(i, 3) % 628) / 100 }));
 function drawStars(cx) {
   for (const st of STARS) {
     const sx = (((st.x - cx * 0.05) % 1400) + 1400) % 1400 - 40;
     if (sx < -8 || sx > W + 8) continue;
     rect(sx, st.y, 2, 2, "#FFFFFF");
-    if (Math.sin(time * 2.2 + st.ph) > 0.35) { rect(sx - 2, st.y, 6, 2, "#FFF4B8"); rect(sx, st.y - 2, 2, 6, "#FFF4B8"); }
+    if (Math.sin(time * 2.2 + st.ph) > 0.35) { rect(sx - 2, st.y, 6, 2, "#FFF2A8"); rect(sx, st.y - 2, 2, 6, "#FFF2A8"); }
   }
 }
 
-// 무지개: 반원 띠를 4px 블록 스팬으로 미리 계산
-const RAINBOW = ["#FFB3C7", "#FFD3A8", "#FFF1A8", "#BDF0C4", "#B5DCFF", "#D4C2FF"];
-const RAINBOW_SPANS = (() => {
-  const out = [], R0 = 210, BW = 12, U = 4;
-  RAINBOW.forEach((c, i) => {
-    const ro = R0 - i * BW, ri = ro - BW;
-    for (let y = -ro; y < 0; y += U) {
-      const yc = y + U / 2;
-      const xo = Math.round(Math.sqrt(Math.max(0, ro * ro - yc * yc)) / U) * U;
-      const xi = Math.abs(yc) < ri ? Math.round(Math.sqrt(ri * ri - yc * yc) / U) * U : 0;
-      if (xo <= xi) continue;
-      if (xi === 0) out.push([c, -xo, y, 2 * xo]);
-      else { out.push([c, -xo, y, xo - xi]); out.push([c, xi, y, xo - xi]); }
+// 달: 4px 블록 원 + 후광
+const MOON_SPANS = (() => {
+  const out = [];
+  for (const [r, c] of [[46, "#4F4396"], [38, "#6A5AAE"], [28, "#FFF6D8"]]) {
+    for (let y = -r; y < r; y += 4) {
+      const xo = Math.round(Math.sqrt(Math.max(0, r * r - (y + 2) * (y + 2))) / 4) * 4;
+      if (xo > 0) out.push([c, -xo, y, 2 * xo]);
     }
-  });
+  }
+  for (const [x, y, w] of [[-12, -10, 8], [6, 4, 8], [-4, 12, 4]]) out.push(["#F1E3B8", x, y, w]); // 크레이터
   return out;
 })();
-function drawRainbow(cx, cy) {
-  const ox = Math.round(430 - cx * 0.08), oy = Math.round(270 - cy * 0.1);
-  for (const [c, x, y, w] of RAINBOW_SPANS) rect(ox + x, oy + y, w, 4, c);
+function drawMoon(cx, cy) {
+  const ox = Math.round(120 - cx * 0.04), oy = Math.round(70 - cy * 0.05);
+  for (const [c, x, y, w] of MOON_SPANS) rect(ox + x, oy + y, w, 4, c);
 }
 
-// 먼 배경의 핑크 성
-function drawRoof(x, top, w, c) { // 계단식 원뿔 지붕
-  for (let k = 0; w - 4 * k > 0; k++) rect(x + 2 * k, top - (k + 1) * 4, w - 4 * k, 4, c);
+// 눈 덮인 성 + 반짝이는 전구
+function drawRoof(x, top, w, c) { // 계단식 원뿔 지붕, 꼭대기엔 눈
+  let k = 0;
+  for (; w - 4 * k > 0; k++) rect(x + 2 * k, top - (k + 1) * 4, w - 4 * k, 4, c);
+  rect(x + 2 * (k - 2), top - k * 4, Math.max(4, w - 4 * (k - 2)), 4, "#FFFFFF");
+  rect(x, top - 4, w, 2, "#FFFFFF");
 }
 function drawTower(x, base, w, h, wall, shade, roof) {
   rect(x, base - h, w, h, wall);
   rect(x + w - 4, base - h, 4, h, shade);
-  rect(x + w / 2 - 2, base - h + 12, 4, 6, "#FFFFFF");
+  rect(x + w / 2 - 2, base - h + 12, 4, 6, "#FFE27A");
   drawRoof(x - 2, base - h, w + 4, roof);
-  const top = base - h - Math.ceil((w + 4) / 4) * 4;
-  rect(x + w / 2, top - 12, 1, 12, "#B48BD8");
-  rect(x + w / 2 + 1, top - 12, 6, 4, "#FF6FA8");
 }
+const LIGHT_COLORS = ["#FF5A6E", "#FFE27A", "#6FE3A0", "#7FB8FF"];
 function drawCastle(cx, cy) {
   const ox = Math.round(560 - cx * 0.1), base = Math.round(300 - cy * 0.1);
-  const wall = "#FBE1EC", shade = "#F2C6DA";
-  drawTower(ox - 84, base, 20, 96, wall, shade, "#C9A7F5");
-  drawTower(ox + 64, base, 20, 96, wall, shade, "#C9A7F5");
-  drawTower(ox - 44, base, 18, 120, wall, shade, "#FF9EC7");
-  drawTower(ox + 26, base, 18, 120, wall, shade, "#FF9EC7");
-  drawTower(ox - 14, base, 28, 150, wall, shade, "#FF7EB6");
+  const wall = "#E9E2F7", shade = "#C9BEE6";
+  drawTower(ox - 84, base, 20, 96, wall, shade, "#2F9E5B");
+  drawTower(ox + 64, base, 20, 96, wall, shade, "#2F9E5B");
+  drawTower(ox - 44, base, 18, 120, wall, shade, "#D8344A");
+  drawTower(ox + 26, base, 18, 120, wall, shade, "#D8344A");
+  drawTower(ox - 14, base, 28, 150, wall, shade, "#D8344A");
   rect(ox - 70, base - 64, 140, 64, wall);
-  for (let i = 0; i < 12; i++) rect(ox - 70 + i * 12, base - 70, 6, 6, wall);
-  rect(ox - 12, base - 34, 24, 34, "#E79BBE");
-  rect(ox - 8, base - 38, 16, 4, "#E79BBE");
-  drawHeart(ox - 2, base - 50, "#FF6FA8");
-  for (const wx of [-52, -32, 24, 44]) rect(ox + wx, base - 46, 6, 8, "#FFFFFF");
+  for (let i = 0; i < 12; i++) { rect(ox - 70 + i * 12, base - 70, 6, 6, wall); rect(ox - 70 + i * 12, base - 72, 6, 2, "#FFFFFF"); }
+  rect(ox - 12, base - 34, 24, 34, "#8E5A3C");
+  rect(ox - 8, base - 38, 16, 4, "#8E5A3C");
+  rect(ox - 4, base - 24, 8, 8, "#2F9E5B"); // 문 위 리스
+  rect(ox - 2, base - 22, 4, 4, "#8E5A3C");
+  rect(ox - 1, base - 18, 2, 2, "#FF5A6E");
+  for (const wx of [-52, -32, 24, 44]) rect(ox + wx, base - 46, 6, 8, "#FFE27A");
+  for (let i = 0; i < 18; i++) { // 성벽 전구 줄
+    const on = Math.sin(time * 4 + i * 1.7) > -0.2;
+    rect(ox - 68 + i * 8, base - 60 + (i % 2) * 2, 2, 2, on ? LIGHT_COLORS[i % 4] : "#8C80B0");
+  }
 }
 
-// 흘러가는 구름
+// 대형 크리스마스 트리 (먼 배경)
+function drawTree(cx, cy) {
+  const ox = Math.round(820 - cx * 0.12), base = Math.round(306 - cy * 0.12);
+  rect(ox - 6, base - 16, 12, 16, "#7A4A2E");
+  const tiers = [[0, 64, 30], [26, 52, 28], [50, 40, 26], [72, 28, 22]];
+  for (const [dy, half, h] of tiers) {
+    for (let k = 0; k < h; k += 4) {
+      const hw = Math.round((half * (k + 4)) / h / 4) * 4;
+      rect(ox - hw, base - 16 - dy - h + k, hw * 2, 4, k % 8 ? "#2C8A50" : "#36A060");
+    }
+    rect(ox - half, base - 16 - dy - 4, half * 2, 4, "#FFFFFF"); // 가지 끝 눈
+  }
+  for (let i = 0; i < 16; i++) { // 오너먼트
+    const t = hash(i, 21), yy = 20 + (t % 76), half = Math.max(8, 64 - yy * 0.55);
+    const xx = ((t >>> 8) % (half * 2)) - half;
+    const on = Math.sin(time * 3 + i) > -0.4;
+    rect(ox + xx, base - 16 - yy, 4, 4, on ? LIGHT_COLORS[i % 4] : "#1E6B3C");
+  }
+  const tw = Math.sin(time * 3) > 0 ? "#FFF2A8" : "#FFD84D"; // 꼭대기 별
+  rect(ox - 2, base - 120, 4, 12, tw); rect(ox - 6, base - 116, 12, 4, tw);
+}
+
+// 흘러가는 구름 (밤 색조)
 const CLOUD_SPAN = 7 * 240;
 const CLOUDS = Array.from({ length: 7 }, (_, i) => ({ x: i * 240 + hash(i, 7) % 90, y: 14 + hash(i, 8) % 110, s: 1 + hash(i, 9) % 2 }));
 function drawCloud(x, y, s) {
   const u = 4 * s;
-  rect(x + u, y + 5 * u, 10 * u, u, "#F3DDF2");
-  rect(x, y + 2 * u, 12 * u, 3 * u, "#FFFFFF");
-  rect(x + 2 * u, y + u, 5 * u, 2 * u, "#FFFFFF");
-  rect(x + 5 * u, y, 4 * u, 2 * u, "#FFFFFF");
-  rect(x + 8 * u, y + u, 3 * u, 2 * u, "#FFFFFF");
+  rect(x + u, y + 5 * u, 10 * u, u, "#9C86C4");
+  rect(x, y + 2 * u, 12 * u, 3 * u, "#D9CFF0");
+  rect(x + 2 * u, y + u, 5 * u, 2 * u, "#E9E2F7");
+  rect(x + 5 * u, y, 4 * u, 2 * u, "#E9E2F7");
+  rect(x + 8 * u, y + u, 3 * u, 2 * u, "#E9E2F7");
 }
 function drawClouds(cx) {
   for (const c of CLOUDS) {
@@ -414,8 +438,8 @@ function drawClouds(cx) {
   }
 }
 
-// 파랄랙스 언덕 (4px 기둥)
-function drawHills(cx, cy, par, base, amp, f1, f2, col, top) {
+// 눈 덮인 파랄랙스 언덕 (4px 기둥), pines>0이면 소나무를 심는다
+function drawHills(cx, cy, par, base, amp, f1, f2, col, top, pines) {
   const off = cx * par, by = base - cy * par;
   for (let x = 0; x < W; x += 4) {
     const wx = x + off;
@@ -423,39 +447,68 @@ function drawHills(cx, cy, par, base, amp, f1, f2, col, top) {
     const y = Math.round((by - h) / 4) * 4;
     rect(x, y, 4, H - y, col);
     rect(x, y, 4, 4, top);
+    const col4 = Math.floor(wx / 4);
+    if (pines && hash(col4, 77) % pines === 0) { // 작은 소나무
+      rect(x, y - 16, 4, 4, "#2C7A4B"); rect(x - 4, y - 12, 12, 4, "#2C7A4B");
+      rect(x - 4, y - 8, 12, 4, "#246A40"); rect(x, y - 4, 4, 4, "#6B4430");
+      rect(x, y - 16, 4, 2, "#FFFFFF");
+    }
   }
 }
 
-// 타일: 바닥은 딸기 크림 쿠키, 공중 블록은 행마다 색이 바뀌는 파스텔 토이 블록
-const BLOCKS = [["#FFB7D5", "#E58DB4"], ["#C9B8FF", "#9F8BE0"], ["#A8E6CF", "#76C4A6"], ["#FFE3A3", "#E0B96A"], ["#A8D8FF", "#76AEDD"]];
+// 내리는 눈 (상태 없음: 시간으로 위치 계산)
+const SNOW = Array.from({ length: 90 }, (_, i) => ({ x: hash(i, 31) % W, y: hash(i, 32) % H, v: 14 + hash(i, 33) % 22, ph: (hash(i, 34) % 628) / 100, s: 1 + (hash(i, 35) % 3 === 0 ? 1 : 0) }));
+function drawSnow(cx) {
+  for (const f of SNOW) {
+    const x = ((((f.x + Math.sin(time * 1.3 + f.ph) * 6 - cx * 0.35 * f.s) % W) + W) % W);
+    const y = (f.y + time * f.v * f.s) % H;
+    rect(x, y, f.s * 2, f.s * 2, f.s > 1 ? "#FFFFFF" : "#E9E6FA");
+  }
+}
+
+function drawCandyCane(x, y) { // 5x9 지팡이 사탕
+  rect(x + 1, y, 3, 1, "#FFFFFF"); rect(x, y + 1, 1, 2, "#E8283E"); rect(x + 4, y + 1, 1, 2, "#FFFFFF");
+  rect(x + 1, y + 1, 1, 1, "#E8283E"); rect(x + 3, y, 1, 1, "#E8283E");
+  for (let k = 3; k < 9; k++) rect(x + 4, y + k, 1, 1, k % 2 ? "#E8283E" : "#FFFFFF");
+}
+function drawHolly(x, y) { // 호랑가시나무 잎 + 열매
+  rect(x, y + 1, 3, 2, "#2C8A50"); rect(x + 4, y + 1, 3, 2, "#2C8A50");
+  rect(x + 3, y, 1, 1, "#E8283E"); rect(x + 2, y + 1, 1, 1, "#E8283E"); rect(x + 4, y + 1, 1, 1, "#C01E33");
+}
+
+// 타일: 바닥은 눈 덮인 진저브레드, 공중 블록은 행마다 색이 바뀌는 선물 상자
+const GIFTS = [["#E8404F", "#B32A3A", "#FFE27A"], ["#3FAE6A", "#2A7F4C", "#FFFFFF"], ["#F2C14E", "#C8962C", "#E8404F"], ["#5B8DEF", "#3D66C2", "#FFFFFF"], ["#F08BC3", "#C9619C", "#FFFFFF"]];
 function drawTile(tx, ty, sx, sy) {
   const h = hash(tx, ty);
   const open = !solidAt(tx, ty - 1);
   if (ty >= LEVEL.length - 2) {
-    rect(sx, sy, TILE, TILE, "#F6D2A8");
-    rect(sx, sy + TILE - 2, TILE, 2, "#E8BB8C");
-    rect(sx + 3 + (h % 8), sy + 6 + ((h >>> 3) % 6), 2, 2, "#B9774A");
-    if (h % 3 === 0) rect(sx + ((h >>> 6) % 12), sy + 10 + ((h >>> 9) % 3), 2, 2, "#B9774A");
+    rect(sx, sy, TILE, TILE, "#C98B5A");
+    rect(sx, sy + TILE - 2, TILE, 2, "#A9703F");
+    rect(sx + 3 + (h % 8), sy + 7 + ((h >>> 3) % 5), 2, 2, "#8A5530");
+    if (h % 3 === 0) rect(sx + ((h >>> 6) % 12), sy + 11 + ((h >>> 9) % 2), 2, 2, "#E8DCC8");
     if (open) {
       const d = (h >>> 4) % 4;
-      rect(sx, sy, TILE, 5, "#FF9EC7");
-      rect(sx, sy, TILE, 1, "#FFD1E6");
-      rect(sx + 2 + d, sy + 5, 3, 2 + (h % 3), "#FF9EC7");
-      rect(sx + 10 - d, sy + 5, 2, 1 + ((h >>> 2) % 3), "#FF9EC7");
-      rect(sx + 5 + d, sy + 2, 1, 1, "#FFFFFF"); // 스프링클
-      const deco = (h >>> 12) % 7;
-      if (deco === 0) drawHeart(sx + 5, sy - 5, "#FF5C9A");
-      else if (deco === 1) drawFlower(sx + 6, sy - 5);
+      rect(sx, sy, TILE, 5, "#FFFFFF");
+      rect(sx, sy + 4, TILE, 1, "#DDE6F5");
+      rect(sx + 2 + d, sy + 5, 3, 2 + (h % 3), "#FFFFFF");
+      rect(sx + 10 - d, sy + 5, 2, 1 + ((h >>> 2) % 3), "#FFFFFF");
+      rect(sx + 5 + d, sy + 1, 1, 1, "#C7D6F2"); // 반짝임
+      const deco = (h >>> 12) % 8;
+      if (deco === 0) drawCandyCane(sx + 5, sy - 9);
+      else if (deco === 1) drawHolly(sx + 4, sy - 3);
     }
   } else {
-    const [c, d] = BLOCKS[ty % BLOCKS.length];
+    const [c, d, rib] = GIFTS[ty % GIFTS.length];
     rect(sx, sy, TILE, TILE, d);
     rect(sx + 1, sy + 1, TILE - 2, TILE - 2, c);
-    rect(sx + 2, sy + 2, 4, 2, "#FFFFFF");
-    rect(sx + 2, sy + 4, 2, 2, "#FFFFFF");
-    rect(sx + 7, sy + 6, 2, 6, d);
-    rect(sx + 5, sy + 8, 6, 2, d);
-    if (open) { rect(sx, sy, TILE, 3, "#FFF5FA"); rect(sx + 3 + (h % 8), sy + 3, 2, 2, "#FFF5FA"); }
+    rect(sx + 7, sy + 1, 2, TILE - 2, rib); // 리본 세로
+    rect(sx + 1, sy + 7, TILE - 2, 2, rib); // 리본 가로
+    rect(sx + 2, sy + 2, 3, 2, "#FFFFFF");  // 광택
+    if (open) {
+      rect(sx, sy - 1, TILE, 3, "#FFFFFF");  // 눈 모자
+      rect(sx + (h % 2 ? 2 : 10), sy + 2, 4, 1, "#FFFFFF");
+      if (h % 4 === 0) { rect(sx + 5, sy - 4, 2, 3, rib); rect(sx + 9, sy - 4, 2, 3, rib); rect(sx + 7, sy - 3, 2, 2, rib); } // 리본 매듭
+    }
   }
 }
 
@@ -464,11 +517,12 @@ function render() {
   const cx = Math.round(cam.x), cy = Math.round(cam.y);
   drawSky();
   drawStars(cx);
-  drawRainbow(cx, cy);
-  drawCastle(cx, cy);
+  drawMoon(cx, cy);
   drawClouds(cx);
-  drawHills(cx, cy, 0.3, 300, 60, 110, 41, "#E2C6F2", "#EED8F8");
-  drawHills(cx, cy, 0.55, 336, 40, 70, 27, "#BFEBD3", "#DDF7E8");
+  drawCastle(cx, cy);
+  drawTree(cx, cy);
+  drawHills(cx, cy, 0.3, 300, 60, 110, 41, "#B9B6E3", "#E4E2F8", 0);
+  drawHills(cx, cy, 0.55, 336, 40, 70, 27, "#E8EEFC", "#FFFFFF", 9);
 
   const tx0 = Math.floor(cx / TILE), tx1 = Math.floor((cx + W - 1) / TILE);
   const ty0 = Math.floor(cy / TILE), ty1 = Math.floor((cy + H - 1) / TILE);
@@ -480,6 +534,7 @@ function render() {
   }
 
   for (const q of particles) drawHeart(q.x - cx - 2, q.y - cy - 2, q.c);
+  drawSnow(cx);
 
   const p = player;
   const frame = CLAWD_FRAMES[Math.floor(p.animT / IDLE_FRAME_TIME) % 2];
@@ -489,7 +544,7 @@ function render() {
 function burst(x, y) { // 더블 점프 하트 이펙트
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
-    particles.push({ x, y, vx: Math.cos(a) * 70, vy: Math.sin(a) * 45 + 30, life: 0.45, c: i % 2 ? "#FF7EB6" : "#FFFFFF" });
+    particles.push({ x, y, vx: Math.cos(a) * 70, vy: Math.sin(a) * 45 + 30, life: 0.45, c: i % 2 ? "#FF5A6E" : "#FFFFFF" });
   }
 }
 
