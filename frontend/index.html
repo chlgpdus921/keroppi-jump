@@ -19,7 +19,6 @@
 const W = 640, H = 360, TILE = 16, PX = 3, STEP = 1 / 60;
 const COYOTE = 0.1, JUMP_BUFFER = 0.1;
 const GRAVITY = 1400, JUMP_V = 460, MAX_VX = 150, ACCEL = 1200, FRICTION = 1400, MAX_FALL = 600;
-const FLOOR_Y = H - 40; // Phase 1 임시 바닥 (Phase 2에서 타일 충돌로 교체)
 const IDLE_FRAME_TIME = 0.4;
 
 // ---- 스프라이트: 사용자 제공 CLAWD 배열 (글자 그대로) ----
@@ -57,6 +56,45 @@ const SPRITE_OX = 3; // 히트박스(42px)를 스프라이트(48px) 가운데에
 const CLAWD_IDLE_B = CLAWD.slice(0, -1).concat(["..GGG......GGG.."]);
 const CLAWD_FRAMES = [CLAWD, CLAWD_IDLE_B];
 
+// ---- 레벨 (타일 16px) ----
+// X 지형, C 코인, ^ 가시, F 깃발, S 시작점, . 빈칸 (C/^/F 동작은 Phase 3)
+const LEVEL = [
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  "........................................................................................................................",
+  ".....................................C.C.............................................C..................................",
+  "....................................XXXXX...........................................XXXX................................",
+  "........................................................XXXXXXXXXXXX....................................................",
+  "...............................C........................XXXXXXXXXXXX...........C.................C......................",
+  ".............................XXXXX...........................................XXXXX..........................C...........",
+  "...................XXX..................................................................................................",
+  "................XXXXXX......................XX....C..........C..C..........................................XXX..........",
+  "...S.........XXXXXXXXX......................XX........................^..................^^.............XXXXXX.....F....",
+  "XXXXXXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX",
+  "XXXXXXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX"
+];
+const levelW = LEVEL[0].length * TILE;
+const levelH = LEVEL.length * TILE;
+
+// 범위 밖: 좌·우·위는 벽, 아래는 빈칸(낙사 허용). S는 빈칸 취급.
+function tileAt(tx, ty) {
+  if (ty >= LEVEL.length) return ".";
+  if (tx < 0 || tx >= LEVEL[0].length || ty < 0) return "X";
+  const ch = LEVEL[ty][tx];
+  return ch === "S" ? "." : ch;
+}
+function solidAt(tx, ty) { return tileAt(tx, ty) === "X"; }
+
 // ---- 캔버스 ----
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -93,25 +131,84 @@ addEventListener("blur", () => keys.clear()); // 포커스를 잃으면 눌린 �
 
 // ---- 플레이어 ----
 const player = {
-  x: 80, y: FLOOR_Y - 48, w: 42, h: 48,
+  x: 0, y: 0, w: 42, h: 48,
   vx: 0, vy: 0, onGround: false, facing: 1,
   coyote: 0, buffer: 0, animT: 0
 };
 
-// Phase 1: 바닥 y = FLOOR_Y만 판정, x는 화면 안으로 제한
+// S 타일 기준 시작점: 히트박스를 타일 가운데에, 발은 타일 바닥에
+const spawn = (() => {
+  const ty = LEVEL.findIndex((row) => row.includes("S"));
+  const tx = LEVEL[ty].indexOf("S");
+  return { x: tx * TILE + TILE / 2 - player.w / 2, y: (ty + 1) * TILE - player.h };
+})();
+
+function respawn() {
+  const p = player;
+  p.x = spawn.x; p.y = spawn.y;
+  p.vx = p.vy = 0;
+  p.coyote = p.buffer = 0;
+  p.onGround = false;
+  jumpPressed = jumpReleased = false;
+}
+respawn();
+
+// 축 분리 AABB: 이동 후 겹친 solid 타일 쪽으로 밀어낸다
+function overlapRange(p) {
+  return {
+    // 오른쪽/아래 끝은 ceil(...)-1: 소수 좌표에서 1px 미만으로 겹쳐도 판정한다
+    tx0: Math.floor(p.x / TILE), tx1: Math.ceil((p.x + p.w) / TILE) - 1,
+    ty0: Math.floor(p.y / TILE), ty1: Math.ceil((p.y + p.h) / TILE) - 1
+  };
+}
 function moveX(dx) {
-  player.x = Math.min(Math.max(player.x + dx, 0), W - player.w);
-  if (player.x === 0 || player.x === W - player.w) player.vx = 0;
+  const p = player;
+  p.x += dx;
+  if (dx !== 0) {
+    const { tx0, tx1, ty0, ty1 } = overlapRange(p);
+    // 진행 방향 앞쪽 타일부터 찾아 가장 가까운 벽에 붙인다
+    const [start, end, step] = dx > 0 ? [tx0, tx1, 1] : [tx1, tx0, -1];
+    outer:
+    for (let tx = start; dx > 0 ? tx <= end : tx >= end; tx += step) {
+      for (let ty = ty0; ty <= ty1; ty++) {
+        if (solidAt(tx, ty)) {
+          p.x = dx > 0 ? tx * TILE - p.w : (tx + 1) * TILE;
+          p.vx = 0;
+          break outer;
+        }
+      }
+    }
+  }
+  p.x = Math.min(Math.max(p.x, 0), levelW - p.w);
 }
 function moveY(dy) {
-  player.y += dy;
-  player.onGround = false;
-  if (player.y + player.h >= FLOOR_Y) {
-    player.y = FLOOR_Y - player.h;
-    player.vy = 0;
-    player.onGround = true;
+  const p = player;
+  p.onGround = false;
+  p.y += dy;
+  if (dy === 0) return;
+  const { tx0, tx1, ty0, ty1 } = overlapRange(p);
+  const [start, end, step] = dy > 0 ? [ty0, ty1, 1] : [ty1, ty0, -1];
+  for (let ty = start; dy > 0 ? ty <= end : ty >= end; ty += step) {
+    for (let tx = tx0; tx <= tx1; tx++) {
+      if (solidAt(tx, ty)) {
+        if (dy > 0) { p.y = ty * TILE - p.h; p.onGround = true; }
+        else p.y = (ty + 1) * TILE;
+        p.vy = 0;
+        return;
+      }
+    }
   }
 }
+
+// ---- 카메라 ----
+const cam = { x: 0, y: 0 };
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+function updateCamera() {
+  const p = player;
+  cam.x = clamp(p.x + p.w / 2 - W / 2, 0, levelW - W);
+  cam.y = clamp(p.y + p.h / 2 - H / 2, 0, levelH - H);
+}
+updateCamera();
 
 function update(dt) {
   const p = player;
@@ -147,6 +244,8 @@ function update(dt) {
   p.vy = Math.min(p.vy + GRAVITY * dt, MAX_FALL);
   moveX(p.vx * dt);
   moveY(p.vy * dt);
+  if (p.y > levelH) respawn(); // 낙사 (Phase 3에서 가시도 같은 처리)
+  updateCamera();
 
   // 정지 애니메이션 타이머
   if (p.onGround && p.vx === 0) p.animT += dt;
@@ -169,15 +268,27 @@ function drawClawd(ctx, x, y, flip, sprite = CLAWD) {
 function render() {
   ctx.fillStyle = "#6EC6FF";
   ctx.fillRect(0, 0, W, H);
-  // 임시 바닥
-  ctx.fillStyle = "#8D5524";
-  ctx.fillRect(0, FLOOR_Y, W, H - FLOOR_Y);
-  ctx.fillStyle = "#3E8E41";
-  ctx.fillRect(0, FLOOR_Y, W, 4);
+
+  // 카메라는 한 번만 반올림해 타일과 스프라이트가 같은 정수 오프셋을 쓰게 한다
+  const cx = Math.round(cam.x), cy = Math.round(cam.y);
+  const tx0 = Math.floor(cx / TILE), tx1 = Math.floor((cx + W - 1) / TILE);
+  const ty0 = Math.floor(cy / TILE), ty1 = Math.floor((cy + H - 1) / TILE);
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) {
+      if (!solidAt(tx, ty) || tx < 0 || tx >= LEVEL[0].length || ty < 0 || ty >= LEVEL.length) continue;
+      const sx = tx * TILE - cx, sy = ty * TILE - cy;
+      ctx.fillStyle = "#8D5524"; // 흙
+      ctx.fillRect(sx, sy, TILE, TILE);
+      if (!solidAt(tx, ty - 1)) { // 윗면이 열려 있으면 풀
+        ctx.fillStyle = "#3E8E41";
+        ctx.fillRect(sx, sy, TILE, 4);
+      }
+    }
+  }
 
   const p = player;
   const frame = CLAWD_FRAMES[Math.floor(p.animT / IDLE_FRAME_TIME) % 2];
-  drawClawd(ctx, p.x - SPRITE_OX, p.y, p.facing < 0, frame);
+  drawClawd(ctx, p.x - SPRITE_OX - cx, p.y - cy, p.facing < 0, frame);
 }
 
 // ---- 루프 ----
