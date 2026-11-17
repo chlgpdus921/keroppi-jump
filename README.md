@@ -6,7 +6,9 @@ Deployed to a private S3 bucket behind CloudFront (OAC) with AWS CDK (TypeScript
 
 > Personal / non-commercial fan project. Sanrio characters (Keroppi, Hello Kitty, Kuromi) belong to Sanrio.
 
-![title](docs/images/title.png)
+![demo](docs/images/demo.gif)
+
+*Demo (about 19s): title fireworks → theme browsing → READY/GO → stage 1 with double jumps, a Kuromi stomp and coins → STAGE 1 CLEAR.*
 
 ## Themes
 
