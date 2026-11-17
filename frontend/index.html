@@ -22,31 +22,33 @@ const GRAVITY = 1400, JUMP_V = 460, MAX_VX = 150, ACCEL = 1200, FRICTION = 1400,
 const FLOOR_Y = H - 40; // Phase 1 임시 바닥 (Phase 2에서 타일 충돌로 교체)
 const IDLE_FRAME_TIME = 0.4;
 
-// ---- 스프라이트 (요구사항 2, 글자 그대로) ----
-const CLAWD = [
-  "..GGGGGGGG..",
-  ".GGGGGGGGGG.",
-  "GGWBGGGWBGGG",
-  "GGWBGGGWBGGG",
+// ---- 스프라이트: 케로피 (개인 프로젝트용 팬아트, 12x11) ----
+// 머리 위로 튀어나온 큰 눈, 분홍 볼, 활짝 웃는 빨간 입
+const KEROPPI = [
+  "..BBB..BBB..",
+  ".BWWWBBWWWB.",
+  ".BWBWBBWBWB.",
+  "GGBWBGGBWBGG",
   "GGGGGGGGGGGG",
-  "GGGGRRRRGGGG",
-  ".GGGGGGGGGG.",
-  "..WWWWWWWW..",
-  "...WWWWWW...",
-  "...G....G...",
-  "...G....G..."
+  "GPPGGGGGGPPG",
+  "GGBGGGGGGBGG",
+  ".GGBRRRRBGG.",
+  "..GGGGGGGG..",
+  "...GGGGGG...",
+  "...GG..GG..."
 ];
 
 const PALETTE = {
   G: "#4CAF50", // 케로피 초록색
-  W: "#FFFFFF", // 흰색
-  B: "#14130F", // 검정 눈동자
-  R: "#E85B65"  // 빨간 입
+  W: "#FFFFFF", // 흰자
+  B: "#14130F", // 눈동자·윤곽선
+  R: "#E85B65", // 빨간 입
+  P: "#F7A1B5"  // 분홍 볼
 };
 
 // 정지 시 2프레임 다리 애니메이션: 두 번째 프레임은 마지막 행(발)만 벌린다.
-const CLAWD_IDLE_B = CLAWD.slice(0, -1).concat(["..G......G.."]);
-const CLAWD_FRAMES = [CLAWD, CLAWD_IDLE_B];
+const KEROPPI_IDLE_B = KEROPPI.slice(0, -1).concat(["..GG....GG.."]);
+const KEROPPI_FRAMES = [KEROPPI, KEROPPI_IDLE_B];
 
 // ---- 캔버스 ----
 const canvas = document.getElementById("game");
@@ -68,6 +70,8 @@ let jumpPressed = false;   // 새 Space 입력 1회 플래그
 let jumpReleased = false;  // Space 뗌 1회 플래그 (가변 점프)
 
 addEventListener("keydown", (e) => {
+  // Ctrl/Cmd/Alt 조합(새로고침, 뒤로가기 등)은 브라우저에 양보
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.repeat) return; // 자동반복 무시: 꾹 눌러도 한 번만 점프
   keys.add(e.code);
@@ -143,7 +147,7 @@ function update(dt) {
 }
 
 // ---- 렌더 ----
-function drawClawd(ctx, x, y, flip, sprite = CLAWD) {
+function drawKeroppi(ctx, x, y, flip, sprite = KEROPPI) {
   for (let r = 0; r < sprite.length; r++) {
     const row = sprite[r];
     for (let c = 0; c < 12; c++) {
@@ -165,8 +169,8 @@ function render() {
   ctx.fillRect(0, FLOOR_Y, W, 4);
 
   const p = player;
-  const frame = CLAWD_FRAMES[Math.floor(p.animT / IDLE_FRAME_TIME) % 2];
-  drawClawd(ctx, p.x - 3, p.y, p.facing < 0, frame);
+  const frame = KEROPPI_FRAMES[Math.floor(p.animT / IDLE_FRAME_TIME) % 2];
+  drawKeroppi(ctx, p.x - 3, p.y, p.facing < 0, frame);
 }
 
 // ---- 루프 ----
