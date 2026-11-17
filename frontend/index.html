@@ -76,33 +76,65 @@ const CLAWD_FRAMES = [CLAWD, CLAWD_IDLE_B];
 
 // ---- 레벨 (타일 16px) ----
 // X 지형, C 코인, ^ 가시, F 깃발, S 시작점, . 빈칸 (C/^/F 동작은 Phase 3)
-const LEVEL = [
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "...........................................C.C.............................................CC...........................",
-  "..........................................XXXXX...........................................XXXX..........................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  "........................................................................................................................",
-  ".....................................C.C.............................................C..................................",
-  "....................................XXXXX...................C..C....................XXXX................................",
-  "........................................................XXXXXXXXXXXX....................................................",
-  "...............................C........................XXXXXXXXXXXX...........C.................C......................",
-  ".............................XXXXX...........................................XXXXX..........................C...........",
-  "...................XXX..................................................................................................",
-  "................XXXXXX......................XX....C..........C..C..........................................XXX..........",
-  "...S.....^...XXXXXXXXX......................XX...........................................^^.............XXXXXX.....F....",
-  "XXXXXXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX",
-  "XXXXXXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX"
+// E = 쿠로미(순찰하는 악당) 시작 위치
+// LEVELS-BEGIN
+const LEVELS = [
+  [ // STAGE 1
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "...........................................C.C.............................................CC...........................",
+    "..........................................XXXXX...........................................XXXX..........................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    "........................................................................................................................",
+    ".....................................C.C.............................................C.E................................",
+    "....................................XXXXX...................C..C....................XXXX................................",
+    "........................................................XXXXXXXXXXXX....................................................",
+    "..............................EC........................XXXXXXXXXXXX...........C.................C......................",
+    ".............................XXXXX...........................................XXXXX..........................C...........",
+    "...................XXX..................................................................................................",
+    "................XXXXXX......................XX....C..........C..C..........................................XXX..........",
+    "...S.........XXXXXXXXX................E.....XX.......................................E......E...........XXXXXX...E.F....",
+    "XXXXXXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX...XXXXXXXXXXXXXXXXXXXXX....XXXXXXXXXXXXXXXXXXXX"
+  ],
+  [ // STAGE 2: 넓은 구덩이, 빠르고 많은 쿠로미, 발판 위 순찰
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    "..................................................................................................................................",
+    ".............................................................CC......................CC...........................................",
+    "............................................................XXXX....................XXXX..........................................",
+    "..................................................................................................................................",
+    "........................................................................C...C.....................................................",
+    "..........................................................................E.......................................................",
+    "......................................................................XXXXXXXXX.........................C.........................",
+    "..................................................C...C...C.......................................................................",
+    "........................................C...........E...E...................................C.......XXXXXXXXX.............C.......",
+    "..................C.........................C...XXXXXXXXXXX.......C.................................XXXXXXXXX.....C...............",
+    "............XX..........................XX..................................................XX...........................XXX......",
+    "............XX....................................................................XX.....................................XXX......",
+    "..........XXXX..............................................C.....................XX..................C...C...........XXXXXX......",
+    "...S......XXXX..............E....E........................E...................E...XX..E...............................XXXXXX.EF...",
+    "XXXXXXXXXXXXXXXX.....XXXXXXXXXXXXXXXXX......XXXXXXXXXXXXXXXXXXXX.....XXXXXXXXXXXXXXXXXXXXX......XXXXXXXXXXXXXXXX.....XXXXXXXXXXXXX",
+    "XXXXXXXXXXXXXXXX.....XXXXXXXXXXXXXXXXX......XXXXXXXXXXXXXXXXXXXX.....XXXXXXXXXXXXXXXXXXXXX......XXXXXXXXXXXXXXXX.....XXXXXXXXXXXXX"
+  ]
 ];
-const levelW = LEVEL[0].length * TILE;
-const levelH = LEVEL.length * TILE;
+// LEVELS-END
+let stage = 0;
+let LEVEL = LEVELS[0];
+let levelW = LEVEL[0].length * TILE;
+let levelH = LEVEL.length * TILE;
 
 // 범위 밖: 좌·우·위는 벽, 아래는 빈칸(낙사 허용). S는 빈칸 취급.
 function tileAt(tx, ty) {
@@ -127,7 +159,7 @@ addEventListener("resize", resize);
 resize();
 
 // ---- 입력 ----
-const GAME_KEYS = new Set(["ArrowLeft", "ArrowRight", "Space", "KeyR"]);
+const GAME_KEYS = new Set(["ArrowLeft", "ArrowRight", "Space", "KeyR", "Enter"]);
 const keys = new Set();
 let jumpPressed = false;   // 새 Space 입력 1회 플래그
 let jumpReleased = false;  // Space 뗌 1회 플래그 (가변 점프)
@@ -138,7 +170,14 @@ addEventListener("keydown", (e) => {
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.repeat) return; // 자동반복 무시: 꾹 눌러도 한 번만 점프
   keys.add(e.code);
-  if (e.code === "KeyR") resetLevel(); // 플레이 중이든 CLEAR든 처음부터
+  if (e.code === "KeyR") { // 현재 스테이지 처음부터 (모든 스테이지 클리어 후엔 1단계부터)
+    if (state === "clear" && isLastStage()) loadStage(0); else resetLevel();
+    return;
+  }
+  if (state === "clear" && (e.code === "Space" || e.code === "Enter")) { // 다음 스테이지
+    if (!isLastStage()) loadStage(stage + 1);
+    return;
+  }
   if (e.code === "Space") jumpPressed = true;
 });
 addEventListener("keyup", (e) => {
@@ -155,12 +194,14 @@ const player = {
   coyote: 0, buffer: 0, animT: 0, airJumps: 0
 };
 
-// S 타일 기준 시작점: 히트박스를 타일 가운데에, 발은 타일 바닥에
-const spawn = (() => {
+// S 타일 기준 시작점: 히트박스를 타일 가운데에, 발은 타일 바닥에 (스테이지마다 갱신, 객체는 유지)
+const spawn = { x: 0, y: 0 };
+function computeSpawn() {
   const ty = LEVEL.findIndex((row) => row.includes("S"));
   const tx = LEVEL[ty].indexOf("S");
-  return { x: tx * TILE + TILE / 2 - player.w / 2, y: (ty + 1) * TILE - player.h };
-})();
+  spawn.x = tx * TILE + TILE / 2 - player.w / 2; spawn.y = (ty + 1) * TILE - player.h;
+}
+computeSpawn();
 
 function respawn() {
   const p = player;
@@ -239,7 +280,11 @@ updateCamera();
 
 function update(dt) {
   const p = player;
-  if (state === "clear") { tickFx(dt); return; } // CLEAR: 물리 정지, 연출만 계속
+  if (state !== "play") { // CLEAR / GAME OVER: 물리 정지, 연출만 계속
+    tickFx(dt);
+    if (state === "clear" && !isLastStage() && (clearT += dt) >= AUTO_NEXT) loadStage(stage + 1); // 자동으로 2단계
+    return;
+  }
   p.prevX = p.x; p.prevY = p.y; cam.prevX = cam.x; cam.prevY = cam.y; // 렌더 보간용
   // 입력 → 가속/마찰
   const dir = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
@@ -280,6 +325,7 @@ function update(dt) {
   moveX(p.vx * dt);
   moveY(p.vy * dt);
   if (p.y > levelH) respawn(); // 낙사
+  updateEnemies(dt);
   checkTriggers();
   updateCamera();
   // 점프 잔상: 공중에 있는 동안 3스텝마다 실루엣을 남긴다
@@ -307,19 +353,61 @@ function tickFx(dt) {
 
 // ---- 게임플레이: 코인 · 가시 · 깃발 ----
 const coins = new Set(); // 남은 코인 "tx,ty"
-let totalCoins = 0, collected = 0, state = "play", flagHint = 0, deathFlash = 0;
+let totalCoins = 0, collected = 0, state = "play", flagHint = 0, deathFlash = 0, clearT = 0;
+const AUTO_NEXT = 2.5; // 스테이지 클리어 후 다음 스테이지로 자동 이동(초)
 function buildCoins() {
   coins.clear();
   LEVEL.forEach((row, ty) => { for (let tx = 0; tx < row.length; tx++) if (row[tx] === "C") coins.add(tx + "," + ty); });
   totalCoins = coins.size;
 }
 // 깃발 판정: 깃발 칸 + 위로 깃대 2칸 (뛰어넘어 지나치지 못하게)
-const flagRect = (() => {
+function computeFlag() {
   const ty = LEVEL.findIndex((r) => r.includes("F"));
   if (ty < 0) return null; // 깃발 없는 맵
   const tx = LEVEL[ty].indexOf("F");
-  return { tx, ty, x: tx * TILE, y: (ty - 2) * TILE, w: TILE, h: 3 * TILE };
-})();
+  return { tx, ty, x: tx * TILE, y: 0, w: TILE, h: LEVEL.length * TILE }; // 깃대 기둥 전체 (뛰어넘기 방지)
+}
+let flagRect = computeFlag();
+
+// ---- 쿠로미 (순찰하는 악당) ----
+const ENEMY_SPEED = [70, 100]; // 스테이지별 px/s
+const ENEMY_W = 22, ENEMY_H = 30; // 히트박스 (스프라이트 28x30, 좌우 3px 여유)
+const enemies = [];
+function buildEnemies() {
+  enemies.length = 0;
+  LEVEL.forEach((row, ty) => { for (let tx = 0; tx < row.length; tx++) if (row[tx] === "E") {
+    enemies.push({ x: tx * TILE + TILE / 2 - ENEMY_W / 2, y: (ty + 1) * TILE - ENEMY_H, w: ENEMY_W, h: ENEMY_H,
+      vx: -(ENEMY_SPEED[stage] ?? ENEMY_SPEED[0]), alive: true, poof: 0, animT: (tx * 0.37) % 1 });
+  } });
+}
+function updateEnemies(dt) {
+  for (const e of enemies) {
+    if (!e.alive) { e.poof = Math.max(0, e.poof - dt); continue; }
+    e.animT += dt;
+    const nx = e.x + e.vx * dt;
+    const front = e.vx > 0 ? nx + e.w : nx;            // 진행 방향 앞 모서리
+    const ftx = Math.floor((e.vx > 0 ? front - 0.01 : front) / TILE);
+    const feetTy = Math.floor((e.y + e.h - 1) / TILE);
+    const wall = solidAt(ftx, feetTy) || solidAt(ftx, Math.floor(e.y / TILE));
+    const ledge = !solidAt(ftx, feetTy + 1);            // 앞에 땅이 없으면 돌아선다 (절대 안 떨어짐)
+    if (wall || ledge || front < 0 || front > levelW) e.vx = -e.vx;
+    else e.x = nx;
+  }
+}
+function gameOver() {
+  const p = player;
+  burst(p.x + p.w / 2, p.y + p.h / 2, ["#E8283E", "#FFFFFF", "#8ED99A"]);
+  burst(p.x + p.w / 2, p.y + p.h / 2 - 6, ["#2B2238", "#FF7FB0"]);
+  deathFlash = 0.25;
+  state = "over";
+}
+function die() { // 가시·쿠로미: 시작점 리스폰 (코인 유지) + 죽은 자리에 파편 + 붉은 플래시
+  const p = player, dx = p.x + p.w / 2, dy = p.y + p.h / 2;
+  respawn();
+  burst(dx, dy, ["#E8283E", "#FFFFFF", "#8ED99A"]);
+  burst(dx, dy - 6, ["#FFD23F", "#E8283E"]);
+  deathFlash = 0.25;
+}
 const overlaps = (a, x, y, w, h) => a.x < x + w && a.x + a.w > x && a.y < y + h && a.y + a.h > y;
 function checkTriggers() {
   const p = player;
@@ -334,29 +422,44 @@ function checkTriggers() {
           burst(tx * TILE + 8, ty * TILE + 8, ["#F0365A", "#FFFFFF", "#FFD23F"]);
         }
       } else if (ch === "^" && overlaps(p, tx * TILE + 2, ty * TILE + 8, TILE - 4, 8)) {
-        // 가시: 아래 8px만 판정 (억울한 죽음 방지). 코인은 유지. 죽은 자리에 파편 + 붉은 플래시
-        const dx = p.x + p.w / 2, dy = p.y + p.h / 2;
-        respawn();
-        burst(dx, dy, ["#E8283E", "#FFFFFF", "#8ED99A"]);
-        burst(dx, dy - 6, ["#FFD23F", "#E8283E"]);
-        deathFlash = 0.25;
+        die(); // 가시: 아래 8px만 판정 (억울한 죽음 방지)
         return;
       }
     }
   }
+  for (const e of enemies) {
+    if (!e.alive || !overlaps(p, e.x, e.y, e.w, e.h)) continue;
+    const prevBottom = (p.prevY ?? p.y) + p.h;
+    if (p.vy > 0 && prevBottom <= e.y + 8) { // 위에서 내려와 머리를 밟음
+      e.alive = false; e.poof = 0.35;
+      p.vy = -JUMP_V * 0.75; p.airJumps = AIR_JUMPS; p.onGround = false;
+      burst(e.x + e.w / 2, e.y + 6, ["#8E5CC2", "#FF7FB0", "#FFFFFF"]);
+    } else { gameOver(); return; } // 쿠로미와 부딪히면 게임 실패
+  }
   if (flagRect && overlaps(p, flagRect.x, flagRect.y, flagRect.w, flagRect.h)) {
-    if (collected === totalCoins) state = "clear"; // 코인을 전부 모아야만 골인
+    if (collected === totalCoins) { state = "clear"; clearT = 0; } // 코인을 전부 모아야만 골인
     else flagHint = 2; // 안내 문구 2초
   }
 }
-function resetLevel() {
+function loadStage(i) {
+  stage = i;
+  LEVEL = LEVELS[i];
+  levelW = LEVEL[0].length * TILE; levelH = LEVEL.length * TILE;
+  computeSpawn();
+  flagRect = computeFlag();
   buildCoins();
+  buildEnemies();
   collected = 0;
   state = "play";
   flagHint = 0;
   respawn();
+  updateCamera();
+  cam.prevX = cam.x; cam.prevY = cam.y;
 }
+function resetLevel() { loadStage(stage); } // 현재 스테이지 처음부터
+const isLastStage = () => stage >= LEVELS.length - 1;
 buildCoins();
+buildEnemies();
 
 // ---- 렌더 ----
 function drawClawd(ctx, x, y, flip, sprite = CLAWD) {
@@ -609,6 +712,12 @@ function renderWorld(alpha = 1) {
   }
   // 깃발은 깃대가 위로 솟으니 범위와 상관없이 따로 그린다
   if (flagRect) drawFlag(flagRect.tx * TILE - cx, flagRect.ty * TILE - cy);
+  for (const e of enemies) {
+    const ex = Math.round(e.x) - 3 - cx, ey = Math.round(e.y) - cy;
+    if (ex < -40 || ex > W + 10) continue;
+    if (e.alive) drawKuromi(ex, ey, e.vx > 0, Math.floor(e.animT * 6) % 2);
+    else if (e.poof > 0) { const k = Math.round((0.35 - e.poof) * 30); rect(ex + 4 - k, ey + 20, 20 + 2 * k, 4, "rgba(255,255,255,0.7)"); }
+  }
 
   for (const q of particles) drawHeart(q.x - cx - 2, q.y - cy - 2, q.c);
   drawSnow(cx);
@@ -630,6 +739,37 @@ const GHOST_SPANS = [false, true].map((flip) => CLAWD.map((row) => {
 function drawGhost(x, y, flip, a) {
   const col = "rgba(200,245,215," + a.toFixed(2) + ")";
   GHOST_SPANS[flip ? 1 : 0].forEach((spans, r) => { for (const [c, n] of spans) rect(x + c * PX, y + r * PX, n * PX, PX, col); });
+}
+
+// 쿠로미 (14x15, PX=2 → 28x30). 걷기 2프레임
+const KUROMI_A = [
+  ".K..........K.",
+  ".KK........KK.",
+  ".KVK......KVK.",
+  ".KVKK....KKVK.",
+  "..KKKKKKKKKK..",
+  ".KKKKKPPKKKKK.",
+  ".KKKKPKKPKKKK.",
+  ".KKKKKPPKKKKK.",
+  "KKWWWWWWWWWWKK",
+  "KWWBBWWWWBBWWK",
+  "KWWWWWPPWWWWWK",
+  ".KWWWWWWWWWWK.",
+  "..KKKKKKKKKKVV",
+  "..KKKKKKKKKK.V",
+  "...KK....KK..."
+];
+const KUROMI = {
+  frames: [KUROMI_A, KUROMI_A.slice(0, -1).concat(["..KK......KK.."])],
+  pal: { K: "#2B2238", V: "#8E5CC2", P: "#FF7FB0", W: "#FFFFFF", B: "#2B2238" }
+};
+function drawKuromi(x, y, flip, f) {
+  KUROMI.frames[f].forEach((row, r) => {
+    for (let c = 0; c < row.length; c++) {
+      const ch = row[flip ? row.length - 1 - c : c];
+      if (ch !== ".") rect(x + c * 2, y + r * 2, 2, 2, KUROMI.pal[ch]);
+    }
+  });
 }
 
 // 헬로키티 얼굴 (22x18, 1칸 = 1px). 코인 테두리 없이 얼굴만, 타일보다 살짝 크게
@@ -683,8 +823,8 @@ function drawSpike(sx, sy) {
 }
 // 골 깃발: 지팡이 사탕 깃대 + 펄럭이는 초록 깃발과 금별
 function drawFlag(sx, sy) {
-  const top = sy - 32;
-  for (let k = 0; k < 48; k += 4) rect(sx + 6, top + k, 3, 4, (k / 4) % 2 ? "#FFFFFF" : "#E8283E");
+  const top = sy - 80;
+  for (let k = 0; k < 96; k += 4) rect(sx + 6, top + k, 3, 4, (k / 4) % 2 ? "#FFFFFF" : "#E8283E");
   rect(sx + 5, top - 4, 5, 4, "#FFD54F");
   for (let r = 0; r < 10; r++) rect(sx + 9 + Math.round(Math.sin(time * 5 + r * 0.6)), top + 1 + r, 14 - Math.floor(r / 3), 1, "#2F9E5B");
   rect(sx + 14, top + 4, 3, 3, "#FFD54F"); rect(sx + 13, top + 5, 5, 1, "#FFD54F");
@@ -697,6 +837,9 @@ const FONT = {
   C: [".####", "#....", "#....", "#....", "#....", "#....", ".####"],
   E: ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
   F: ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  G: [".####", "#....", "#....", "#.###", "#...#", "#...#", ".###."],
+  V: ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  Y: ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
   I: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
   J: ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
   K: ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
@@ -759,14 +902,27 @@ function renderHUD() {
   }
   // 우상단: 제목
   drawText("KEROPPI JUMP", W - 8, 9, 1, "#FFFFFF", "#3A3450", "right");
+  drawText("STAGE " + (stage + 1), W - 8, 21, 1, "#FFD54F", "#3A3450", "right");
 
+  if (state === "over") {
+    rect(0, 0, W, H, "rgba(40,10,30,0.65)");
+    drawText("GAME OVER", W / 2, 110, 5, "#FF5A6E", "#2B2238", "center");
+    drawText("COIN " + collected + "/" + totalCoins, W / 2, 170, 2, "#FFD54F", "#2B2238", "center");
+    drawText("PRESS R TO RETRY", W / 2, 220, 2, Math.sin(time * 5) > 0 ? "#FFFFFF" : "#FF9EB8", "#2B2238", "center");
+  }
   if (state === "clear") {
     rect(0, 0, W, H, "rgba(30,20,60,0.6)");
     const perfect = collected === totalCoins;
-    drawText("CLEAR!", W / 2, 96, 5, "#FFFFFF", "#E8283E", "center");
+    const last = isLastStage();
+    drawText(last ? "ALL CLEAR!" : "STAGE " + (stage + 1) + " CLEAR!", W / 2, 96, last ? 5 : 4, "#FFFFFF", "#E8283E", "center");
     if (perfect) drawText("PERFECT!", W / 2, 150, 3, ["#FF5A6E", "#FFD54F", "#6FE3A0", "#7FB8FF"], "#3A3450", "center");
     drawText("COIN " + collected + "/" + totalCoins, W / 2, perfect ? 188 : 160, 2, "#FFD54F", "#3A3450", "center");
-    drawText("PRESS R TO RESTART", W / 2, 240, 2, Math.sin(time * 5) > 0 ? "#FFFFFF" : "#FF9EB8", "#3A3450", "center"); // 색으로 깜빡임
+    const blink = Math.sin(time * 5) > 0 ? "#FFFFFF" : "#FF9EB8"; // 색으로 깜빡임
+    if (last) drawText("PRESS R TO PLAY AGAIN", W / 2, 240, 2, blink, "#3A3450", "center");
+    else {
+      drawText("PRESS SPACE FOR STAGE " + (stage + 2), W / 2, 232, 2, blink, "#3A3450", "center");
+      drawText("PRESS R TO RESTART", W / 2, 260, 1, "#FFFFFF", "#3A3450", "center");
+    }
   }
 }
 
