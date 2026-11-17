@@ -170,8 +170,12 @@ addEventListener("keydown", (e) => {
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   if (e.repeat) return; // 자동반복 무시: 꾹 눌러도 한 번만 점프
   keys.add(e.code);
-  if (e.code === "KeyR") { // 현재 스테이지 처음부터 (모든 스테이지 클리어 후엔 1단계부터)
+  if (e.code === "KeyR" && state !== "title" && state !== "ready") { // 현재 스테이지 처음부터 (모든 스테이지 클리어 후엔 1단계부터)
     if (state === "clear" && isLastStage()) loadStage(0); else resetLevel();
+    return;
+  }
+  if (state === "title" || state === "ready") { // 타이틀: Space/Enter로 시작
+    if (state === "title" && (e.code === "Space" || e.code === "Enter")) startGame();
     return;
   }
   if (state === "clear" && (e.code === "Space" || e.code === "Enter")) { // 다음 스테이지
@@ -280,6 +284,19 @@ updateCamera();
 
 function update(dt) {
   const p = player;
+  if (state === "title") { // 타이틀: 카메라가 스테이지를 천천히 훑고 불꽃놀이
+    tickFx(dt);
+    cam.prevX = cam.x; cam.prevY = cam.y;
+    cam.x = (levelW - W) * (0.5 - 0.5 * Math.cos(time * 0.08)); cam.y = levelH - H;
+    if ((fireworkT -= dt) <= 0) { fireworkT = 0.5; firework(); }
+    return;
+  }
+  if (state === "ready") { // READY? → GO!
+    tickFx(dt);
+    startFlash = Math.max(0, startFlash - dt);
+    if ((readyT -= dt) <= 0) state = "play";
+    return;
+  }
   if (state !== "play") { // CLEAR / GAME OVER: 물리 정지, 연출만 계속
     tickFx(dt);
     if (state === "clear" && !isLastStage() && (clearT += dt) >= AUTO_NEXT) loadStage(stage + 1); // 자동으로 2단계
@@ -353,7 +370,9 @@ function tickFx(dt) {
 
 // ---- 게임플레이: 코인 · 가시 · 깃발 ----
 const coins = new Set(); // 남은 코인 "tx,ty"
-let totalCoins = 0, collected = 0, state = "play", flagHint = 0, deathFlash = 0, clearT = 0;
+let totalCoins = 0, collected = 0, state = "title", flagHint = 0, deathFlash = 0, clearT = 0;
+let readyT = 0, startFlash = 0, fireworkT = 0; // 타이틀·READY 연출
+const READY_TIME = 1.2;
 const AUTO_NEXT = 2.5; // 스테이지 클리어 후 다음 스테이지로 자동 이동(초)
 function buildCoins() {
   coins.clear();
@@ -457,6 +476,20 @@ function loadStage(i) {
   cam.prevX = cam.x; cam.prevY = cam.y;
 }
 function resetLevel() { loadStage(stage); } // 현재 스테이지 처음부터
+function startGame() {
+  loadStage(0);
+  state = "ready"; readyT = READY_TIME; startFlash = 0.35;
+  particles.length = 0;
+}
+const FIREWORK_COLORS = [["#FF5A6E", "#FFFFFF"], ["#FFD54F", "#FFF2A8"], ["#6FE3A0", "#FFFFFF"], ["#7FB8FF", "#E9E6FA"], ["#FF9EB8", "#FFD23F"]];
+function firework() { // 하늘 임의 위치에서 터지는 원형 불꽃
+  const i = Math.floor(time * 7) % FIREWORK_COLORS.length;
+  const x = cam.x + 60 + ((hash(Math.floor(time * 10), 5) % 520)), y = cam.y + 30 + (hash(Math.floor(time * 10), 6) % 110);
+  for (let k = 0; k < 18; k++) {
+    const a = (k / 18) * Math.PI * 2, v = 60 + (k % 3) * 25;
+    particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.8, c: FIREWORK_COLORS[i][k % 2] });
+  }
+}
 const isLastStage = () => stage >= LEVELS.length - 1;
 buildCoins();
 buildEnemies();
@@ -727,7 +760,7 @@ function renderWorld(alpha = 1) {
   const p = player;
   const frame = CLAWD_FRAMES[Math.floor(p.animT / IDLE_FRAME_TIME) % 2];
   const px = lerp(p.prevX, p.x, alpha), py = lerp(p.prevY, p.y, alpha);
-  drawClawd(ctx, px - SPRITE_OX - cx, py - SPRITE_OY - cy, p.facing < 0, frame);
+  if (state !== "title") drawClawd(ctx, px - SPRITE_OX - cx, py - SPRITE_OY - cy, p.facing < 0, frame);
 }
 
 // 잔상 실루엣: 행마다 이어진 칸을 하나의 사각형으로 합쳐 반투명하게 그린다
@@ -837,6 +870,10 @@ const FONT = {
   C: [".####", "#....", "#....", "#....", "#....", "#....", ".####"],
   E: ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
   F: ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  B: ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+  D: ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+  H: ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  W: ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"],
   G: [".####", "#....", "#....", "#.###", "#...#", "#...#", ".###."],
   V: ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
   Y: ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
@@ -885,8 +922,43 @@ function drawText(str, x, y, s, colors, shadow, align = "left") {
   });
 }
 
+function drawSpriteScaled(sprite, pal, x, y, s, flip = false) { // 타이틀용 큰 스프라이트
+  sprite.forEach((row, r) => {
+    for (let c = 0; c < row.length; c++) {
+      const ch = row[flip ? row.length - 1 - c : c];
+      if (ch !== "." && pal[ch]) rect(x + c * s, y + r * s, s, s, pal[ch]);
+    }
+  });
+}
+const RAINBOW_TEXT = ["#FF5A6E", "#FFD54F", "#6FE3A0", "#7FB8FF", "#FF9EB8", "#C9A7F5"];
+function drawBouncyText(str, cx, y, s, shadow) { // 글자마다 통통 튀는 무지개 로고
+  drawnTexts.push(str);
+  const w = textWidth(str, s); let x = Math.round(cx - w / 2);
+  [...str].forEach((ch, i) => {
+    const dy = Math.round(Math.sin(time * 5 + i * 0.6) * 4);
+    const saved = drawnTexts.length;
+    drawText(ch, x + i * 6 * s, y + dy, s, RAINBOW_TEXT[i % RAINBOW_TEXT.length], shadow);
+    drawnTexts.length = saved;
+  });
+}
+function renderTitle() {
+  rect(0, 0, W, H, "rgba(30,20,70,0.35)");
+  drawBouncyText("KEROPPI", W / 2, 34, 7, "#2B2238");
+  drawBouncyText("JUMP", W / 2, 96, 6, "#2B2238");
+  const bob = Math.round(Math.abs(Math.sin(time * 3)) * -14);
+  drawSpriteScaled(CLAWD_FRAMES[Math.floor(time * 2) % 2], PALETTE, W / 2 - 60, 158 + bob, 5);   // 큰 케로피
+  drawSpriteScaled(KITTY_COIN, COIN_PAL, 112, 222 + Math.round(Math.sin(time * 4) * 3), 3);      // 키티 x2
+  drawSpriteScaled(KITTY_COIN, COIN_PAL, W - 112 - 66, 222 + Math.round(Math.sin(time * 4 + 1) * 3), 3);
+  const peek = Math.round(Math.max(0, Math.sin(time * 1.5)) * 30);                                // 쿠로미가 빼꼼
+  drawSpriteScaled(KUROMI.frames[0], KUROMI.pal, W - peek, 300, 3, true);
+  drawText("PRESS SPACE TO START", W / 2, 296, 2, Math.sin(time * 6) > 0 ? "#FFFFFF" : "#FFD54F", "#2B2238", "center");
+  drawText("ARROWS MOVE   SPACE JUMP   SPACE X2 DOUBLE JUMP", W / 2, 322, 1, "#E9E6FA", "#2B2238", "center");
+  drawText("COLLECT ALL KITTY COINS AND AVOID KUROMI!", W / 2, 336, 1, "#FF9EB8", "#2B2238", "center");
+}
+
 function renderHUD() {
   drawnTexts = [];
+  if (state === "title") { renderTitle(); return; }
   if (deathFlash > 0) rect(0, 0, W, H, "rgba(232,40,62," + (deathFlash * 1.6).toFixed(2) + ")"); // 가시 사망 플래시
   // 좌상단: 코인 패널
   const label = collected + "/" + totalCoins;
@@ -904,6 +976,12 @@ function renderHUD() {
   drawText("KEROPPI JUMP", W - 8, 9, 1, "#FFFFFF", "#3A3450", "right");
   drawText("STAGE " + (stage + 1), W - 8, 21, 1, "#FFD54F", "#3A3450", "right");
 
+  if (state === "ready") {
+    if (startFlash > 0) rect(0, 0, W, H, "rgba(255,255,255," + (startFlash * 2.5).toFixed(2) + ")");
+    const go = readyT < READY_TIME * 0.45;
+    const s = go ? 7 + Math.round((READY_TIME * 0.45 - readyT) * 6) : 5;
+    drawText(go ? "GO!" : "READY?", W / 2, H / 2 - 3.5 * s, s, go ? "#FFD54F" : "#FFFFFF", "#E8283E", "center");
+  }
   if (state === "over") {
     rect(0, 0, W, H, "rgba(40,10,30,0.65)");
     drawText("GAME OVER", W / 2, 110, 5, "#FF5A6E", "#2B2238", "center");
